@@ -2,3 +2,6 @@
   publish = "public"
   functions = "functions"
   command = "npm install"
+
+[functions]
+  external_node_modules = ["firebase-admin"]
