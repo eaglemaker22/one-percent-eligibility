@@ -1,24 +1,21 @@
 const admin = require("firebase-admin");
 
-// 1. Initialize outside the handler. 
-// This stays "warm" so Netlify doesn't have to reconnect to Firebase on every single click.
 if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // The "Unjammer": transforms literal \n text into real newlines
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      }),
-    });
-    console.log("Firebase Admin initialized successfully.");
-  } catch (error) {
-    console.error("Firebase initialization error:", error.stack);
-  }
+  // Decode the Base64 key
+  const encodedKey = process.env.FIREBASE_PRIVATE_KEY_BASE64;
+  const privateKey = Buffer.from(encodedKey, 'base64').toString('ascii');
+
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: privateKey,
+    }),
+  });
 }
 
 const db = admin.firestore();
+// ... rest of the code is the same
 
 exports.handler = async (event, context) => {
   // Good practice: allow both GET (to test in browser) and POST for this test script
