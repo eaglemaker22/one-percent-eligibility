@@ -1,3 +1,23 @@
+const admin = require("firebase-admin");
+
+// --- 1. THE CONNECTION (Copy-pasted from your working write_test) ---
+if (!admin.apps.length) {
+  try {
+    const b64 = process.env.FIREBASE_PRIVATE_KEY_BASE64;
+    const decodedString = Buffer.from(b64, 'base64').toString('utf8');
+    const serviceAccount = JSON.parse(decodedString);
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+  } catch (error) {
+    console.error("Firebase Init Error:", error.message);
+  }
+}
+
+const db = admin.firestore();
+
 exports.handler = async function (event) {
   // Only allow POST
   if (event.httpMethod !== "POST") {
@@ -11,10 +31,10 @@ exports.handler = async function (event) {
     return { statusCode: 400, body: "Invalid JSON" };
   }
 
-  // Required fields
+  // --- 2. YOUR EXISTING LOGIC ---
   const name = (data.name || "").trim();
   const email = (data.email || "").trim();
-  const phone = (data.phone || "").trim(); // optional
+  const phone = (data.phone || "").trim();
 
   if (!name || !email) {
     return {
@@ -24,28 +44,24 @@ exports.handler = async function (event) {
     };
   }
 
-  // --- BASIC OUTPUTS (placeholders we’ll refine) ---
-  const price = Number(data.price || 0);             // purchase price estimate
-  const cash = Number(data.cash || 0);               // cash available
+  const price = Number(data.price || 0);
+  const cash = Number(data.cash || 0);
   const incomeMonthly = Number(data.incomeMonthly || 0);
   const debtsMonthly = Number(data.debtsMonthly || 0);
   const openness = Number(data.openness || 0);
 
   const downPaymentNeeded = price > 0 ? price * 0.01 : 0;
   const downPaymentOk = cash >= downPaymentNeeded;
-
-  // VERY rough payment estimate placeholder (we’ll replace with taxes/HOI/MI later)
-  const estPITI = price > 0 ? (price * 0.007) : 0; // placeholder
+  const estPITI = price > 0 ? (price * 0.007) : 0;
   const estDTI = incomeMonthly > 0 ? (debtsMonthly + estPITI) / incomeMonthly : null;
 
-  // Lead score (simple v1)
   const score = Math.max(
     0,
     Math.min(100, Math.round((openness / 10) * 40 + (downPaymentOk ? 30 : 0) + (estDTI !== null && estDTI <= 0.45 ? 30 : 0)))
   );
 
-  // Log (shows up in Netlify function logs)
-  console.log("LEAD_SUBMIT", {
+  // Prepare the object for the database
+  const leadPayload = {
     name,
     email,
     phone,
@@ -54,26 +70,34 @@ exports.handler = async function (event) {
     incomeMonthly,
     debtsMonthly,
     openness,
-    downPaymentNeeded,
-    downPaymentOk,
-    estPITI,
-    estDTI,
-    score,
-    ts: new Date().toISOString(),
-  });
+    calculations: {
+      downPaymentNeeded: Math.round(downPaymentNeeded),
+      downPaymentOk,
+      estPITI: Math.round(estPITI),
+      estDTI: estDTI === null ? null : Number(estDTI.toFixed(3)),
+      score,
+    },
+    submittedAt: new Date().toISOString(),
+  };
 
+  // --- 3. THE SAVE STEP (New) ---
+  try {
+    // This saves the lead into a collection called 'leads'
+    await db.collection("leads").add(leadPayload);
+    console.log("LEAD_SAVED_TO_FIRESTORE", name);
+  } catch (dbError) {
+    // We log the error but still return the results to the user 
+    // so the website doesn't "break" for them.
+    console.error("FIRESTORE_SAVE_ERROR", dbError.message);
+  }
+
+  // --- 4. RETURN RESULTS TO FRONTEND ---
   return {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ok: true,
-      results: {
-        downPaymentNeeded: Math.round(downPaymentNeeded),
-        downPaymentOk,
-        estPITI: Math.round(estPITI),
-        estDTI: estDTI === null ? null : Number(estDTI.toFixed(3)),
-        score,
-      },
+      results: leadPayload.calculations,
     }),
   };
 };
