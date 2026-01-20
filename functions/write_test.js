@@ -1,4 +1,4 @@
-import admin from "firebase-admin";
+const admin = require("firebase-admin");
 
 let app;
 function getApp() {
@@ -6,7 +6,10 @@ function getApp() {
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  // Netlify env vars often store newlines as "\n"
+  if (privateKey) privateKey = privateKey.replace(/\\n/g, "\n");
 
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error("Missing FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, or FIREBASE_PRIVATE_KEY");
@@ -23,33 +26,28 @@ function getApp() {
   return app;
 }
 
-export async function handler() {
+exports.handler = async () => {
   try {
     getApp();
     const db = admin.firestore();
 
-    const docRef = await db.collection("lead_submissions").add({
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      source: "netlify_function_test",
-      name: "Test User",
-      email: "test@example.com",
-      phone: "",
-      zip: "90210",
-      opennessScore: 8,
-      rawAnswers: {
-        q1: "0-3 months",
-        q4: "350-500k",
-      },
-    });
+    const ref = db.collection("leads_test").doc("netlify_write_test");
+    await ref.set({
+      ok: true,
+      ts: new Date().toISOString(),
+      source: "netlify-function",
+    }, { merge: true });
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, wroteDocId: docRef.id }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ok: true, wrote: true }),
     };
   } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ ok: false, error: err.message }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ok: false, error: String(err && err.message ? err.message : err) }),
     };
   }
-}
+};
