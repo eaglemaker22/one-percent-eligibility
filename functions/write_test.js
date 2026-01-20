@@ -1,60 +1,52 @@
 const admin = require("firebase-admin");
 
 if (!admin.apps.length) {
-  // Decode the Base64 key
-  const encodedKey = process.env.FIREBASE_PRIVATE_KEY_BASE64;
-  const privateKey = Buffer.from(encodedKey, 'base64').toString('ascii');
+  try {
+    const encodedKey = process.env.FIREBASE_PRIVATE_KEY_BASE64;
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: privateKey,
-    }),
-  });
+    if (!encodedKey) {
+      throw new Error("Missing FIREBASE_PRIVATE_KEY_BASE64");
+    }
+
+    // 1. Decode Base64 to string
+    let privateKey = Buffer.from(encodedKey, 'base64').toString('utf8');
+
+    // 2. THE FIX: Force literal "\n" text to become real newlines
+    // This is the most common reason for "Invalid PEM" errors
+    privateKey = privateKey.replace(/\\n/g, '\n');
+
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: privateKey,
+      }),
+    });
+    console.log("Firebase initialized successfully.");
+  } catch (error) {
+    console.error("Initialization error:", error.message);
+  }
 }
 
 const db = admin.firestore();
-// ... rest of the code is the same
 
-exports.handler = async (event, context) => {
-  // Good practice: allow both GET (to test in browser) and POST for this test script
+exports.handler = async (event) => {
   try {
-    // 2. Reference the collection and document
-    const ref = db.collection("leads_test").doc("netlify_write_test");
+    const testRef = db.collection("leads_test").doc("final_format_test");
+    await testRef.set({
+      status: "Success",
+      message: "PEM format fixed.",
+      timestamp: new Date().toISOString()
+    });
 
-    // 3. Perform the write
-    await ref.set({
-      ok: true,
-      ts: new Date().toISOString(),
-      source: "netlify-function-updated",
-      status: "It worked!"
-    }, { merge: true });
-
-    // 4. Success Response
     return {
       statusCode: 200,
-      headers: { 
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*" // Allows testing from your local machine
-      },
-      body: JSON.stringify({ 
-        message: "Successfully wrote to Firestore!",
-        timestamp: new Date().toISOString()
-      }),
+      body: JSON.stringify({ message: "Success! Firestore write complete." }),
     };
-
   } catch (err) {
-    // 5. Error Response - This will help you see EXACTLY what went wrong in the browser
-    console.error("Function Error:", err);
     return {
       statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        ok: false, 
-        error: err.message,
-        stack: err.stack // Only for debugging
-      }),
+      body: JSON.stringify({ error: err.message, stack: err.stack }),
     };
   }
 };
